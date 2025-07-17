@@ -1,0 +1,6 @@
+{
+    "attempt_retry_seconds": 5,
+    "max_attempts_to_reload": 60,
+    "sheets_refresh_interval_minutes": 1,
+    "sheets_link": "https://docs.google.com/spreadsheets/d/1gIooGghzO341-tbhkw0eIALh08PsTuo00YGTa_1rIls/edit?usp=sharing"
+}
