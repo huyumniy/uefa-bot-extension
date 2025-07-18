@@ -2,9 +2,11 @@
 /**
  * Finds all seat chains matching area, category, row and adjacency.
  */
-function findNearbyChains(features, minLen, category) {
+function findNearbyChains(features, minLen, category, blacklist) {
   const groups = new Map();
+
   features.forEach(f => {
+    if (blacklist.includes(f.id)) return;
     const p = f.properties;
     if (p.seatCategory.toLowerCase() !== category.toLowerCase()) return;
     const key = `${p.areaName}||${p.seatCategory}||${p.row}`;
@@ -12,6 +14,7 @@ function findNearbyChains(features, minLen, category) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ num, feat: f });
   });
+
   const chains = [];
   groups.forEach(items => {
     items.sort((a, b) => a.num - b.num);
@@ -39,4 +42,18 @@ function getRandomChainSlice(chains, qty) {
   return chain.slice(start, start + qty);
 }
 
-export { findNearbyChains, getRandomChainSlice }
+function getAllCategories(data) {
+  if (!data || !Array.isArray(data.features)) {
+    return false;
+  }
+
+  const categoriesSet = new Set(
+    data.features
+      .map(f => f.properties?.seatCategory)
+      .filter(cat => typeof cat === 'string')
+  );
+
+  return Array.from(categoriesSet);
+}
+
+export { findNearbyChains, getRandomChainSlice, getAllCategories }

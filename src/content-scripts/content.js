@@ -1,19 +1,44 @@
 import { delay, filterMatchingKeys } from "../utils/helpers.js";
 import { _countAndRun } from "../utils/scheduler.js";
 import { requestSheetData, waitForSheetData } from "../services/chrome_extension_api.js";
-import { findNearbyChains, getRandomChainSlice } from "../utils/filtration.js";
+import { findNearbyChains, getRandomChainSlice, getAllCategories } from "../utils/filtration.js";
 
 import config from '../../config.json';
 
 export let settings = {
   reloadTime: config.attempt_retry_seconds,
-  matchesData: []
+  matchesData: [],
+  blacklist: []
 }
 
 export async function main() {
   try {
     while (true) {
+      
       console.log('in main', settings.matchesData)
+      // If captcha dialog present, bail
+      if (document.querySelector('#captcha_dialog') || document.querySelector('iframe[title="DataDome CAPTCHA"]')) {
+        console.log('CAPTCHA');
+        return false;
+      }
+      if (window.location.href.includes('noAvailability')) {
+        console.log('no availability')
+        history.go(-1);
+        return;
+      }
+      if (window.location.href.includes('/cart/reservation/0')) {
+        let seats = document.querySelectorAll('table.widget_SPORTING_EVENT td.seat')
+        if (!seats) return;
+        seats.forEach(seat => {
+          const innerDiv = seat.querySelector('div');
+          
+          if (!innerDiv) return;
+          const txt = innerDiv.textContent.trim();
+          seat.textContent = txt;
+        })
+        return;
+      }
+      
       if (!settings.matchesData) {
         console.log('No matches data were found')
         _countAndRun()
@@ -27,17 +52,17 @@ export async function main() {
         _countAndRun()
         return;
       }
-      const current_match_name = team_spans[0].text.trim() + ' vs ' + team_spans[2].text.trim()
+      const current_match_name = team_spans[0].textContent.trim() + ' vs ' + team_spans[2].textContent.trim()
       if (!desired_match_names.includes(current_match_name)) {
         console.log("there's no such a match in spreadsheets...")
         _countAndRun()
         return;
       }
 
-      // If captcha dialog present, bail
-      if (document.querySelector('#captcha_dialog')) {
-        return false;
-      }
+      let matchEntry = settings.matchesData.find(match => current_match_name === match[0]);
+      let categoriesDict = matchEntry ? matchEntry[1] : {};
+      console.log('categoriesDict', categoriesDict)
+      
 
       const currentUrl = window.location.href;
       if (!currentUrl.includes('performanceId')) {
@@ -61,32 +86,46 @@ export async function main() {
         return;
       }
 
-      // Read category legends
-      const legends = Array.from(document.querySelectorAll('.seat-info-category-legend'));
-      const names = legends.map(el => {
-        const span = el.querySelector('p > label > span:nth-child(2)');
-        return span ? span.textContent.trim() : '';
-      }).filter(Boolean);
-
-      const availableCategories = filterMatchingKeys(names, categoriesDict)
-      if (!availableCategories.length) {
-        console.log('No matching categories found');
-        return false;
-      }
-      const chosen = availableCategories[Math.floor(Math.random() * availableCategories.length)];
-      const qty = parseInt(categoriesDict[chosen], 10);
-      
       // Fetch seat data
-
       const seatsEndpoint = `${domain}/ajax/resale/freeSeats?productId=${productId}&performanceId=${performanceId}`;
       console.log('Fetching seats from:', seatsEndpoint);
       
       const seatsResp = await fetch(seatsEndpoint);
-      if (!seatsResp.ok) throw new Error('FreeSeats request failed');
+      if (!seatsResp.ok) {
+        console.log('FreeSeats request error');
+        window.location.reload();
+        return;
+      }
       const seatsJson = await seatsResp.json();
 
+      if (!seatsJson || !seatsJson?.features) {
+        console.log('No tickets from freeSeats request', seatsJson);
+        _countAndRun();
+        return;
+      }
+
+      // filter expired blacklist
+      let now = Date.now();
+      let blacklist = JSON.parse(localStorage.getItem("blacklist") || "[]");
+      blacklist = blacklist.filter(entry => now - entry.timestamp < config.blacklist_ttl)
+      localStorage.setItem("blacklist", JSON.stringify(blacklist));
+      let blacklistIds = blacklist.map(entry => entry.id);
+      // Read category legends
+      const names = getAllCategories(seatsJson);
+      console.log('get all cateogries function result', names)
+
+      const availableCategories = filterMatchingKeys(names, categoriesDict)
+      if (!availableCategories.length) {
+        console.log('No matching categories found');
+        _countAndRun();
+        return;
+      }
+      const chosen = availableCategories[Math.floor(Math.random() * availableCategories.length)];
+      const qty = parseInt(categoriesDict[chosen], 10);
+      
+
       // Build chains
-      const chains = findNearbyChains(seatsJson.features, qty, chosen);
+      const chains = findNearbyChains(seatsJson.features, qty, chosen, blacklistIds);
       console.log(chains.length, 'chains found');
       if (!chains.length) {
         _countAndRun();
@@ -124,9 +163,11 @@ export async function main() {
       addField('_csrf', csrfToken);
       addField('performanceId', performanceId);
 
+      
       let valid = true;
       for (let i = 0; i < chain.length; i++) {
         const seat = chain[i];
+        blacklist.push({ id: seat.id, timestamp: Date.now() })
         const infoUrl = `${domain}/ajax/resale/seatInfo?productId=${productId}` +
           `&perfId=${performanceId}&seatId=${seat.id}&advantageId=&ppid=&reservationIdx=&crossSellId=`;
         const infoResp = await fetch(infoUrl);
@@ -150,7 +191,7 @@ export async function main() {
         _countAndRun();
         return;
       }
-
+      localStorage.setItem("blacklist", JSON.stringify(blacklist));
       form.submit();
       return true;
     }
