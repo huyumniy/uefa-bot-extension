@@ -9,7 +9,8 @@
     {
       "matches": [
         "*://*.tickets.uefa.com/secured/selection/resale/*",
-        "*://*.tickets.uefa.com/list/events"
+        "*://*.tickets.uefa.com/error/noAvailability",
+        "*://*.tickets.uefa.com/cart/reservation/0"
         ],
       "js": ["dist/content.js"]
     }

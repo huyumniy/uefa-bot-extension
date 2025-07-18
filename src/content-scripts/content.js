@@ -36,6 +36,7 @@ export async function main() {
           const txt = innerDiv.textContent.trim();
           seat.textContent = txt;
         })
+        alert("Seats reserved!")
         return;
       }
       
